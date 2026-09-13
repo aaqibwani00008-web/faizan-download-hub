@@ -1,9 +1,35 @@
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 TOKEN = os.environ["BOT_TOKEN"]
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/healthz":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        return
+
+
+def run_health_server():
+    port = int(os.environ.get("PORT", "10000"))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server.serve_forever()
+
+
+threading.Thread(target=run_health_server, daemon=True).start()
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -11,10 +37,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📥 Apna/permission wala direct media link bhejo."
     )
 
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔗 Direct downloadable video/file URL bhejo."
     )
+
 
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
@@ -56,6 +84,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Download failed.\n"
             "Direct downloadable media link try karo."
         )
+
 
 app = Application.builder().token(TOKEN).build()
 
