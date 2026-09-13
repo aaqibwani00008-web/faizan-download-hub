@@ -75,7 +75,15 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("📤 Sending...")
 
         with open(filename, "rb") as media:
-            await update.message.reply_document(document=media)
+            if filename.endswith(".mp4"):
+                await update.message.reply_video(
+                    video=media,
+                    supports_streaming=True
+                )
+            else:
+                await update.message.reply_document(
+                    document=media
+                )
 
         os.remove(filename)
 
@@ -90,7 +98,9 @@ app = Application.builder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("help", help_command))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
+app.add_handler(
+    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link)
+)
 
 print("🤖 Faizan Download Hub is running!")
-app.run_polling()
+app.run_polling()        
