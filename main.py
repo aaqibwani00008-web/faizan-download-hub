@@ -1,17 +1,13 @@
 import os
+import re
 import asyncio
 import tempfile
 import shutil
-import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 
 import yt_dlp
-
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -21,15 +17,15 @@ from telegram.ext import (
     filters,
 )
 
+TOKEN = os.getenv("BOT_TOKEN")
 
-TOKEN = os.environ["BOT_TOKEN"]
 
-
-# -------------------------
-# Health server
-# -------------------------
+# =========================
+# RENDER HEALTH SERVER
+# =========================
 
 class HealthHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         if self.path == "/healthz":
             self.send_response(200)
@@ -40,187 +36,195 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, format, *args):
-        return
+        pass
 
 
-def run_health_server():
-    port = int(os.environ.get("PORT", "10000"))
+def start_health_server():
+    port = int(os.getenv("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     server.serve_forever()
 
 
-threading.Thread(
-    target=run_health_server,
-    daemon=True
-).start()
+# =========================
+# SUPPORTED URL
+# =========================
+
+def is_supported_url(url):
+    return bool(re.search(
+        r"(youtube\.com|youtu\.be|instagram\.com)",
+        url,
+        re.IGNORECASE
+    ))
 
 
-# -------------------------
-# Start
-# -------------------------
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Welcome to Faizan Download Hub!\n\n"
-        "📥 Apna/permission wala YouTube video link bhejo."
-    )
-
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🔗 YouTube video/Shorts link bhejo."
-    )
-
-
-# -------------------------
-# Check YouTube URL
-# -------------------------
-
-def is_youtube_url(url):
-    return (
-        "youtube.com/" in url
-        or "youtu.be/" in url
-    )
-
-
-# -------------------------
-# Get video information
-# -------------------------
+# =========================
+# VIDEO INFO
+# =========================
 
 def get_video_info(url):
+
     options = {
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": False,
+        "no_warnings": False,
         "skip_download": True,
+        "noplaylist": True,
     }
 
     with yt_dlp.YoutubeDL(options) as ydl:
         return ydl.extract_info(url, download=False)
 
 
-# -------------------------
-# Download video
-# -------------------------
+# =========================
+# VIDEO 1080P
+# =========================
 
-def download_media(url, quality):
-    temp_dir = tempfile.mkdtemp(prefix="faizan_")
+def download_video(url, folder):
 
-    try:
-        if quality == "360":
-            fmt = (
-                "bestvideo[height<=360]+bestaudio/"
-                "best[height<=360]"
-            )
+    output = os.path.join(
+        folder,
+        "%(title).80s.%(ext)s"
+    )
 
-        elif quality == "480":
-            fmt = (
-                "bestvideo[height<=480]+bestaudio/"
-                "best[height<=480]"
-            )
+    options = {
+        "format": (
+            "bestvideo[height<=1080]+bestaudio/"
+            "best[height<=1080]/best"
+        ),
+        "outtmpl": output,
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "quiet": False,
+        "no_warnings": False,
+    }
 
-        elif quality == "720":
-            fmt = (
-                "bestvideo[height<=720]+bestaudio/"
-                "best[height<=720]"
-            )
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(url, download=True)
 
-        elif quality == "audio":
-            fmt = "bestaudio/best"
+        filename = ydl.prepare_filename(info)
 
-        else:
-            raise ValueError("Invalid quality")
+        base = os.path.splitext(filename)[0]
+        mp4_file = base + ".mp4"
 
-        options = {
-            "format": fmt,
-            "outtmpl": os.path.join(
-                temp_dir,
-                "%(title).80s.%(ext)s"
-            ),
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-            "merge_output_format": "mp4",
-        }
+        if os.path.exists(mp4_file):
+            return mp4_file
 
-        if quality == "audio":
-            options["postprocessors"] = [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ]
+        if os.path.exists(filename):
+            return filename
 
-        with yt_dlp.YoutubeDL(options) as ydl:
-            info = ydl.extract_info(
-                url,
-                download=True
-            )
+    # Fallback: find downloaded file
+    for file in os.listdir(folder):
+        path = os.path.join(folder, file)
 
-            filename = ydl.prepare_filename(info)
+        if os.path.isfile(path):
+            return path
 
-            if quality == "audio":
-                base, _ = os.path.splitext(filename)
-                filename = base + ".mp3"
-            else:
-                # yt-dlp may merge into mp4
-                if not os.path.exists(filename):
-                    base, _ = os.path.splitext(filename)
-                    mp4 = base + ".mp4"
-
-                    if os.path.exists(mp4):
-                        filename = mp4
-                    else:
-                        files = os.listdir(temp_dir)
-
-                        if not files:
-                            raise FileNotFoundError(
-                                "Downloaded file not found"
-                            )
-
-                        filename = os.path.join(
-                            temp_dir,
-                            files[0]
-                        )
-
-        return temp_dir, filename
-
-    except Exception:
-        shutil.rmtree(
-            temp_dir,
-            ignore_errors=True
-        )
-        raise
+    raise Exception("Video file nahi mili.")
 
 
-# -------------------------
-# Receive YouTube link
-# -------------------------
+# =========================
+# AUDIO
+# =========================
 
-async def handle_link(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+def download_audio(url, folder):
+
+    output = os.path.join(
+        folder,
+        "%(title).80s.%(ext)s"
+    )
+
+    options = {
+        "format": "bestaudio/best",
+        "outtmpl": output,
+        "noplaylist": True,
+        "quiet": False,
+        "no_warnings": False,
+
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ],
+    }
+
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+        filename = ydl.prepare_filename(info)
+
+        base = os.path.splitext(filename)[0]
+        mp3_file = base + ".mp3"
+
+        if os.path.exists(mp3_file):
+            return mp3_file
+
+    for file in os.listdir(folder):
+        path = os.path.join(folder, file)
+
+        if os.path.isfile(path):
+            return path
+
+    raise Exception("Audio file nahi mili.")
+
+
+# =========================
+# START
+# =========================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        "👋 Assalamualaikum Miya!\n\n"
+        "🎬 YouTube ya Instagram ka video link bhejo.\n\n"
+        "Main tumhe:\n"
+        "🎬 1080p Video\n"
+        "🎵 Audio\n\n"
+        "options dunga."
+    )
+
+
+# =========================
+# HELP
+# =========================
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        "📖 <b>Video Downloader</b>\n\n"
+        "Supported:\n"
+        "▶️ YouTube\n"
+        "📸 Instagram\n\n"
+        "Video ka public link bhejo.",
+        parse_mode="HTML"
+    )
+
+
+# =========================
+# LINK HANDLER
+# =========================
+
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = update.message.text.strip()
 
-    if not url.startswith(("http://", "https://")):
+    if not is_supported_url(url):
+
         await update.message.reply_text(
-            "❌ Valid YouTube link bhejo."
+            "❌ Ye supported link nahi hai.\n\n"
+            "YouTube ya Instagram link bhejo."
         )
         return
 
-    if not is_youtube_url(url):
-        await update.message.reply_text(
-            "❌ Filhaal YouTube links supported hain."
-        )
-        return
+    # URL save
+    context.user_data["url"] = url
 
-    msg = await update.message.reply_text(
+    status = await update.message.reply_text(
         "🔎 Video information check ho rahi hai..."
     )
 
     try:
+
         info = await asyncio.to_thread(
             get_video_info,
             url
@@ -228,69 +232,96 @@ async def handle_link(
 
         title = info.get(
             "title",
-            "YouTube Video"
+            "Video"
         )
 
-        duration = info.get("duration")
+        thumbnail = info.get(
+            "thumbnail"
+        )
+
+        duration = info.get(
+            "duration"
+        )
 
         if duration:
+
             minutes = duration // 60
             seconds = duration % 60
-            duration_text = f"{minutes}:{seconds:02d}"
+
+            duration_text = (
+                f"{minutes}:{seconds:02d}"
+            )
+
         else:
             duration_text = "Unknown"
 
-        # Save URL for this user
-        context.user_data["youtube_url"] = url
-
-        keyboard = [
+        keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton(
-                    "🎬 360p",
-                    callback_data="dl:360"
-                ),
-                InlineKeyboardButton(
-                    "🎬 480p",
-                    callback_data="dl:480"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    "🎬 720p",
-                    callback_data="dl:720"
-                ),
+                    "🎬 1080p",
+                    callback_data="video_1080"
+                )
             ],
             [
                 InlineKeyboardButton(
                     "🎵 Audio",
-                    callback_data="dl:audio"
-                ),
-            ],
-        ]
+                    callback_data="audio"
+                )
+            ]
+        ])
 
-        await msg.edit_text(
-            f"🎬 {title}\n\n"
+        caption = (
+            f"🎬 <b>{title}</b>\n\n"
             f"⏱ Duration: {duration_text}\n\n"
-            f"👇 Quality select karo:",
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            )
+            "👇 Download option choose karo:"
+        )
+
+        await status.delete()
+
+        if thumbnail:
+
+            try:
+
+                await update.message.reply_photo(
+                    photo=thumbnail,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+
+                return
+
+            except Exception as e:
+
+                print(
+                    "THUMBNAIL ERROR:",
+                    repr(e)
+                )
+
+        await update.message.reply_text(
+            caption,
+            parse_mode="HTML",
+            reply_markup=keyboard
         )
 
     except Exception as e:
-        print("INFO ERROR:", repr(e))
 
-        await msg.edit_text(
+        print(
+            "INFO ERROR:",
+            repr(e)
+        )
+
+        await status.edit_text(
             "❌ Video information nahi mil saki.\n\n"
-            "Link check karo aur dobara try karo."
+            "Link public hona chahiye."
         )
 
 
-# -------------------------
-# Button handler
-# -------------------------
+# =========================
+# BUTTON HANDLER
+# =========================
 
-async def quality_callback(
+async def button_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
@@ -300,109 +331,193 @@ async def quality_callback(
     await query.answer()
 
     url = context.user_data.get(
-        "youtube_url"
+        "url"
     )
 
     if not url:
+
         await query.message.reply_text(
-            "❌ Link expire ho gaya. Dobara link bhejo."
+            "❌ Link nahi mila.\n"
+            "Video link dobara bhejo."
         )
+
         return
 
-    quality = query.data.split(":")[1]
+    # =====================
+    # 1080P
+    # =====================
 
-    quality_name = {
-        "360": "360p",
-        "480": "480p",
-        "720": "720p",
-        "audio": "Audio",
-    }.get(quality, quality)
+    if query.data == "video_1080":
 
-    status = await query.message.reply_text(
-        f"⏳ {quality_name} download ho raha hai..."
-    )
-
-    temp_dir = None
-
-    try:
-        temp_dir, filename = await asyncio.to_thread(
-            download_media,
-            url,
-            quality
+        status = await query.message.reply_text(
+            "⏳ 1080p video download ho rahi hai...\n\n"
+            "Thoda wait karo."
         )
 
-        await status.edit_text(
-            "📤 Telegram par send ho raha hai..."
+        folder = tempfile.mkdtemp(
+            prefix="video_"
         )
 
-        with open(filename, "rb") as media:
+        try:
 
-            if quality == "audio":
-                await query.message.reply_audio(
-                    audio=media,
-                    title=os.path.basename(filename)
-                )
+            file_path = await asyncio.to_thread(
+                download_video,
+                url,
+                folder
+            )
 
-            else:
+            await status.edit_text(
+                "📤 Video Telegram par upload ho rahi hai..."
+            )
+
+            with open(
+                file_path,
+                "rb"
+            ) as video:
+
                 await query.message.reply_video(
-                    video=media,
-                    supports_streaming=True
+                    video=video,
+                    caption="🎬 1080p"
                 )
 
-        await status.delete()
+            await status.delete()
 
-    except Exception as e:
+        except Exception as e:
 
-        print("DOWNLOAD ERROR:", repr(e))
+            print(
+                "VIDEO ERROR:",
+                repr(e)
+            )
 
-        await status.edit_text(
-            "❌ Download/send failed.\n\n"
-            "Video chhota ya doosra quality option try karo."
+            await status.edit_text(
+                "❌ 1080p download failed.\n\n"
+                "Possible reason:\n"
+                "• 1080p available nahi hai\n"
+                "• FFmpeg missing hai\n"
+                "• Website ne request reject ki hai"
+            )
+
+        finally:
+
+            shutil.rmtree(
+                folder,
+                ignore_errors=True
+            )
+
+    # =====================
+    # AUDIO
+    # =====================
+
+    elif query.data == "audio":
+
+        status = await query.message.reply_text(
+            "⏳ Audio download ho rahi hai..."
         )
 
-    finally:
+        folder = tempfile.mkdtemp(
+            prefix="audio_"
+        )
 
-        if temp_dir:
+        try:
+
+            file_path = await asyncio.to_thread(
+                download_audio,
+                url,
+                folder
+            )
+
+            await status.edit_text(
+                "📤 Audio Telegram par upload ho rahi hai..."
+            )
+
+            with open(
+                file_path,
+                "rb"
+            ) as audio:
+
+                await query.message.reply_audio(
+                    audio=audio
+                )
+
+            await status.delete()
+
+        except Exception as e:
+
+            print(
+                "AUDIO ERROR:",
+                repr(e)
+            )
+
+            await status.edit_text(
+                "❌ Audio download failed.\n\n"
+                "FFmpeg ya source support check karo."
+            )
+
+        finally:
+
             shutil.rmtree(
-                temp_dir,
+                folder,
                 ignore_errors=True
             )
 
 
-# -------------------------
-# Application
-# -------------------------
+# =========================
+# MAIN
+# =========================
 
-app = (
-    Application
-    .builder()
-    .token(TOKEN)
-    .build()
-)
+def main():
 
-app.add_handler(
-    CommandHandler("start", start)
-)
+    if not TOKEN:
 
-app.add_handler(
-    CommandHandler("help", help_command)
-)
+        raise RuntimeError(
+            "BOT_TOKEN environment variable missing"
+        )
 
-app.add_handler(
-    CallbackQueryHandler(
-        quality_callback,
-        pattern=r"^dl:"
+    Thread(
+        target=start_health_server,
+        daemon=True
+    ).start()
+
+    app = (
+        Application
+        .builder()
+        .token(TOKEN)
+        .build()
     )
-)
 
-app.add_handler(
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_link
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
     )
-)
+
+    app.add_handler(
+        CommandHandler(
+            "help",
+            help_command
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_url
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            button_handler
+        )
+    )
+
+    print(
+        "🤖 Bot started successfully!"
+    )
+
+    app.run_polling()
 
 
-print("🤖 Faizan Download Hub is running!")
-
-app.run_polling()
+if __name__ == "__main__":
+    main()
