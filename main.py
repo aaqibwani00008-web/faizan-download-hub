@@ -1,4 +1,4 @@
-import os
+    import os
 import re
 import asyncio
 import tempfile
@@ -20,12 +20,7 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 
 
-# =========================
-# RENDER HEALTH SERVER
-# =========================
-
 class HealthHandler(BaseHTTPRequestHandler):
-
     def do_GET(self):
         if self.path == "/healthz":
             self.send_response(200)
@@ -45,10 +40,6 @@ def start_health_server():
     server.serve_forever()
 
 
-# =========================
-# SUPPORTED URL
-# =========================
-
 def is_supported_url(url):
     return bool(re.search(
         r"(youtube\.com|youtu\.be|instagram\.com)",
@@ -57,12 +48,7 @@ def is_supported_url(url):
     ))
 
 
-# =========================
-# VIDEO INFO
-# =========================
-
 def get_video_info(url):
-
     options = {
         "quiet": False,
         "no_warnings": False,
@@ -74,16 +60,8 @@ def get_video_info(url):
         return ydl.extract_info(url, download=False)
 
 
-# =========================
-# VIDEO 1080P
-# =========================
-
 def download_video(url, folder):
-
-    output = os.path.join(
-        folder,
-        "%(title).80s.%(ext)s"
-    )
+    output = os.path.join(folder, "%(title).80s.%(ext)s")
 
     options = {
         "format": (
@@ -99,7 +77,6 @@ def download_video(url, folder):
 
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)
-
         filename = ydl.prepare_filename(info)
 
         base = os.path.splitext(filename)[0]
@@ -111,26 +88,16 @@ def download_video(url, folder):
         if os.path.exists(filename):
             return filename
 
-    # Fallback: find downloaded file
     for file in os.listdir(folder):
         path = os.path.join(folder, file)
-
         if os.path.isfile(path):
             return path
 
     raise Exception("Video file nahi mili.")
 
 
-# =========================
-# AUDIO
-# =========================
-
 def download_audio(url, folder):
-
-    output = os.path.join(
-        folder,
-        "%(title).80s.%(ext)s"
-    )
+    output = os.path.join(folder, "%(title).80s.%(ext)s")
 
     options = {
         "format": "bestaudio/best",
@@ -138,7 +105,6 @@ def download_audio(url, folder):
         "noplaylist": True,
         "quiet": False,
         "no_warnings": False,
-
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -150,7 +116,6 @@ def download_audio(url, folder):
 
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)
-
         filename = ydl.prepare_filename(info)
 
         base = os.path.splitext(filename)[0]
@@ -161,22 +126,16 @@ def download_audio(url, folder):
 
     for file in os.listdir(folder):
         path = os.path.join(folder, file)
-
         if os.path.isfile(path):
             return path
 
     raise Exception("Audio file nahi mili.")
 
 
-# =========================
-# START
-# =========================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     await update.message.reply_text(
         "👋 Assalamualaikum Miya!\n\n"
-        "🎬 YouTube ya Instagram ka video link bhejo.\n\n"
+        "🎬 YouTube ya Instagram ka public video link bhejo.\n\n"
         "Main tumhe:\n"
         "🎬 1080p Video\n"
         "🎵 Audio\n\n"
@@ -184,39 +143,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# =========================
-# HELP
-# =========================
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     await update.message.reply_text(
         "📖 <b>Video Downloader</b>\n\n"
         "Supported:\n"
         "▶️ YouTube\n"
         "📸 Instagram\n\n"
-        "Video ka public link bhejo.",
+        "Public video link bhejo.",
         parse_mode="HTML"
     )
 
 
-# =========================
-# LINK HANDLER
-# =========================
-
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     url = update.message.text.strip()
 
     if not is_supported_url(url):
-
         await update.message.reply_text(
             "❌ Ye supported link nahi hai.\n\n"
             "YouTube ya Instagram link bhejo."
         )
         return
 
-    # URL save
     context.user_data["url"] = url
 
     status = await update.message.reply_text(
@@ -224,34 +171,16 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
+        info = await asyncio.to_thread(get_video_info, url)
 
-        info = await asyncio.to_thread(
-            get_video_info,
-            url
-        )
-
-        title = info.get(
-            "title",
-            "Video"
-        )
-
-        thumbnail = info.get(
-            "thumbnail"
-        )
-
-        duration = info.get(
-            "duration"
-        )
+        title = info.get("title", "Video")
+        thumbnail = info.get("thumbnail")
+        duration = info.get("duration")
 
         if duration:
-
             minutes = duration // 60
             seconds = duration % 60
-
-            duration_text = (
-                f"{minutes}:{seconds:02d}"
-            )
-
+            duration_text = f"{minutes}:{seconds:02d}"
         else:
             duration_text = "Unknown"
 
@@ -279,24 +208,16 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.delete()
 
         if thumbnail:
-
             try:
-
                 await update.message.reply_photo(
                     photo=thumbnail,
                     caption=caption,
                     parse_mode="HTML",
                     reply_markup=keyboard
                 )
-
                 return
-
             except Exception as e:
-
-                print(
-                    "THUMBNAIL ERROR:",
-                    repr(e)
-                )
+                print("THUMBNAIL ERROR:", repr(e))
 
         await update.message.reply_text(
             caption,
@@ -305,47 +226,25 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     except Exception as e:
-
-        print(
-            "INFO ERROR:",
-            repr(e)
-        )
-
+        print("INFO ERROR:", repr(e))
         await status.edit_text(
             "❌ Video information nahi mil saki.\n\n"
             "Link public hona chahiye."
         )
 
 
-# =========================
-# BUTTON HANDLER
-# =========================
-
-async def button_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-
     await query.answer()
 
-    url = context.user_data.get(
-        "url"
-    )
+    url = context.user_data.get("url")
 
     if not url:
-
         await query.message.reply_text(
             "❌ Link nahi mila.\n"
             "Video link dobara bhejo."
         )
-
         return
-
-    # =====================
-    # 1080P
-    # =====================
 
     if query.data == "video_1080":
 
@@ -354,12 +253,9 @@ async def button_handler(
             "Thoda wait karo."
         )
 
-        folder = tempfile.mkdtemp(
-            prefix="video_"
-        )
+        folder = tempfile.mkdtemp(prefix="video_")
 
         try:
-
             file_path = await asyncio.to_thread(
                 download_video,
                 url,
@@ -370,11 +266,7 @@ async def button_handler(
                 "📤 Video Telegram par upload ho rahi hai..."
             )
 
-            with open(
-                file_path,
-                "rb"
-            ) as video:
-
+            with open(file_path, "rb") as video:
                 await query.message.reply_video(
                     video=video,
                     caption="🎬 1080p"
@@ -383,30 +275,14 @@ async def button_handler(
             await status.delete()
 
         except Exception as e:
-
-            print(
-                "VIDEO ERROR:",
-                repr(e)
-            )
-
+            print("VIDEO ERROR:", repr(e))
             await status.edit_text(
                 "❌ 1080p download failed.\n\n"
-                "Possible reason:\n"
-                "• 1080p available nahi hai\n"
-                "• FFmpeg missing hai\n"
-                "• Website ne request reject ki hai"
+                "Public link aur available quality check karo."
             )
 
         finally:
-
-            shutil.rmtree(
-                folder,
-                ignore_errors=True
-            )
-
-    # =====================
-    # AUDIO
-    # =====================
+            shutil.rmtree(folder, ignore_errors=True)
 
     elif query.data == "audio":
 
@@ -414,12 +290,9 @@ async def button_handler(
             "⏳ Audio download ho rahi hai..."
         )
 
-        folder = tempfile.mkdtemp(
-            prefix="audio_"
-        )
+        folder = tempfile.mkdtemp(prefix="audio_")
 
         try:
-
             file_path = await asyncio.to_thread(
                 download_audio,
                 url,
@@ -430,74 +303,34 @@ async def button_handler(
                 "📤 Audio Telegram par upload ho rahi hai..."
             )
 
-            with open(
-                file_path,
-                "rb"
-            ) as audio:
-
-                await query.message.reply_audio(
-                    audio=audio
-                )
+            with open(file_path, "rb") as audio:
+                await query.message.reply_audio(audio=audio)
 
             await status.delete()
 
         except Exception as e:
-
-            print(
-                "AUDIO ERROR:",
-                repr(e)
-            )
-
+            print("AUDIO ERROR:", repr(e))
             await status.edit_text(
-                "❌ Audio download failed.\n\n"
-                "FFmpeg ya source support check karo."
+                "❌ Audio download failed."
             )
 
         finally:
+            shutil.rmtree(folder, ignore_errors=True)
 
-            shutil.rmtree(
-                folder,
-                ignore_errors=True
-            )
-
-
-# =========================
-# MAIN
-# =========================
 
 def main():
-
     if not TOKEN:
-
-        raise RuntimeError(
-            "BOT_TOKEN environment variable missing"
-        )
+        raise RuntimeError("BOT_TOKEN environment variable missing")
 
     Thread(
         target=start_health_server,
         daemon=True
     ).start()
 
-    app = (
-        Application
-        .builder()
-        .token(TOKEN)
-        .build()
-    )
+    app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "help",
-            help_command
-        )
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
 
     app.add_handler(
         MessageHandler(
@@ -507,14 +340,10 @@ def main():
     )
 
     app.add_handler(
-        CallbackQueryHandler(
-            button_handler
-        )
+        CallbackQueryHandler(button_handler)
     )
 
-    print(
-        "🤖 Bot started successfully!"
-    )
+    print("🤖 Bot started successfully!")
 
     app.run_polling()
 
